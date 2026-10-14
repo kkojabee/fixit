@@ -1,0 +1,37 @@
+[
+  {
+    "file": "NotoSansKR-Regular.ttf",
+    "source": "Google_Sans_Code,Noto_Sans_KR.zip",
+    "member": "Noto_Sans_KR/static/NotoSansKR-Regular.ttf",
+    "bytes": 6191364,
+    "sha256": "b4a747e78805bc25b610dcfc3003cb5fb2e2ec034763774b24216ed15889eef4"
+  },
+  {
+    "file": "NotoSansKR-Bold.ttf",
+    "source": "Google_Sans_Code,Noto_Sans_KR.zip",
+    "member": "Noto_Sans_KR/static/NotoSansKR-Bold.ttf",
+    "bytes": 6189424,
+    "sha256": "c76f806dc46b8e7981410cb083801f7f124b7f8bc0d181cdae80e78f16d0e9cc"
+  },
+  {
+    "file": "NotoSansKR-OFL.txt",
+    "source": "Google_Sans_Code,Noto_Sans_KR.zip",
+    "member": "Noto_Sans_KR/OFL.txt",
+    "bytes": 4481,
+    "sha256": "92c343f7e7caebff8bace350bc091b79755f4d0c8b70bb0df21570a1828917b8"
+  },
+  {
+    "file": "Paperlogy-4Regular.ttf",
+    "source": "Paperlogy-1.001.zip",
+    "member": "Paperlogy-4Regular.ttf",
+    "bytes": 1312616,
+    "sha256": "05e1021e3de620dddc97875342e2be1a94c5f8e9b9f792bd16c4c1d0085343b3"
+  },
+  {
+    "file": "Paperlogy-7Bold.ttf",
+    "source": "Paperlogy-1.001.zip",
+    "member": "Paperlogy-7Bold.ttf",
+    "bytes": 1307936,
+    "sha256": "7effb892621474e9c2a9112f482eb87dd25b65a470e5ae5971be5a68d89ad89b"
+  }
+]

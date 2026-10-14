@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/* 1. NanumSquare WITH unicode-range (excludes Hanja U+4E00-9FFF) */
+@font-face {
+  font-family: 'NanumSquareRange';
+  font-weight: 700;
+  src: url('/fonts/NanumSquareB.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}
+/* 2. NanumSquare WITHOUT unicode-range */
+@font-face {
+  font-family: 'NanumSquareNoRange';
+  font-weight: 700;
+  src: url('/fonts/NanumSquareB.ttf') format('truetype');
+}
+/* 3. NotoSansKR */
+@font-face {
+  font-family: 'NotoSansKR';
+  font-weight: 700;
+  src: url('/fonts/NotoSansKR-Bold.ttf') format('truetype');
+}
+</style>
+</head>
+<body>
+<canvas id="c1" width="400" height="100"></canvas>
+<pre id="log"></pre>
+<script>
+async function run() {
+  await document.fonts.ready;
+  const c = document.getElementById('c1');
+  const ctx = c.getContext('2d');
+
+  // Test 1: Without unicode-range
+  ctx.font = 'bold 24px NanumSquareNoRange, NotoSansKR, sans-serif';
+  const w1 = ctx.measureText('선(先)').width;
+
+  // Test 2: With unicode-range
+  ctx.font = 'bold 24px NanumSquareRange, NotoSansKR, sans-serif';
+  const w2 = ctx.measureText('선(先)').width;
+
+  // Test 3: NotoSansKR directly
+  ctx.font = 'bold 24px NotoSansKR, sans-serif';
+  const w3 = ctx.measureText('선(先)').width;
+
+  // Test 4: Empty parentheses '선( )'
+  ctx.font = 'bold 24px NanumSquareRange, NotoSansKR, sans-serif';
+  const w_empty = ctx.measureText('선( )').width;
+
+  document.getElementById('log').textContent = JSON.stringify({
+    without_range: w1,
+    with_range: w2,
+    noto_direct: w3,
+    empty_paren: w_empty
+  }, null, 2);
+}
+run();
+</script>
+</body>
+</html>

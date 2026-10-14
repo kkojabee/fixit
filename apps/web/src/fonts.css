@@ -1,0 +1,45 @@
+@font-face {
+  font-family: 'NanumSquare';
+  font-weight: 400;
+  src: url('/fonts/NanumSquareR.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}
+@font-face {
+  font-family: 'NanumSquare';
+  font-weight: 700;
+  src: url('/fonts/NanumSquareB.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}
+@font-face {
+  font-family: 'NanumSquare';
+  font-weight: 800;
+  src: url('/fonts/NanumSquareEB.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}
+@font-face {
+  font-family: 'NotoSansKR';
+  font-weight: 400;
+  src: url('/fonts/NotoSansKR-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'NotoSansKR';
+  font-weight: 700;
+  src: url('/fonts/NotoSansKR-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'NotoSansKR';
+  font-weight: 800;
+  src: url('/fonts/NotoSansKR-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Paperlogy';
+  font-weight: 400;
+  src: url('/fonts/Paperlogy-4Regular.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  font-weight: 700;
+  src: url('/fonts/Paperlogy-7Bold.ttf') format('truetype');
+  unicode-range: U+0000-007F, U+1100-11FF, U+2000-206F, U+3000-303F, U+3130-318F, U+AC00-D7AF;
+}

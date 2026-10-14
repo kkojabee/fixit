@@ -1,0 +1,26 @@
+services:
+  fixit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fixit
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8310}:8310"
+    environment:
+      - PORT=8310
+      - API_PORT=8310
+      - DATABASE_URL=${DATABASE_URL:-postgresql://inspection:ts2020!!@192.168.209.100:5432/DB_TRIP_TRANS}
+      - SECRET_KEY=${SECRET_KEY:-fixit_super_secret_jwt_key_2026_modern_studio}
+      - TRIP_CLOSER_SECRET_KEY=${TRIP_CLOSER_SECRET_KEY:-tripcloser_super_secret_key}
+      - STRATA_VLM_URL=${STRATA_VLM_URL:-http://192.168.202.24:8080/v1}
+      - MSDN_COST_API_URL=${MSDN_COST_API_URL:-http://192.168.209.120:8100/api/costs/recommendation}
+      - DOC_LLM_MODEL=${DOC_LLM_MODEL:-gpt-6.1-sol}
+      - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-medium}
+      - STORAGE_DIR=/app/storage
+      - FONTS_DIR=/app/fonts
+    volumes:
+      - ./storage:/app/storage
+      - ./fonts:/app/fonts:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

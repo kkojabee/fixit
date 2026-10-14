@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Secrets & Config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Database & Local Stores
+*.db
+*.sqlite
+*.sqlite3
+storage/*.db
+storage/*.sqlite
+storage/*.sqlite3
+
+# Runtime storage (Keep structure via .gitkeep, ignore runtime files)
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/outputs/*
+!storage/outputs/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+storage/assets/*
+!storage/assets/.gitkeep
+storage/backups/*
+!storage/backups/.gitkeep
+
+# Legacy / Accidental storage
+apps/storage/
+apps/api/storage/
+apps/web/dist/
+tmp/
+scratch/
