@@ -39,7 +39,7 @@ def extract_original_ocr_boxes(image_path: Path) -> List[List[int]]:
     if img_bgr is None:
         raise ValueError(f"Cannot read image file: {image_path}")
 
-    dt_boxes, elapse = engine.text_detector(img_bgr)
+    dt_boxes, elapse = engine.text_det(img_bgr)
     raw_boxes: List[List[int]] = []
     if dt_boxes is not None and len(dt_boxes) > 0:
         for poly in dt_boxes:
@@ -195,8 +195,8 @@ def run_crop_and_strata_vlm_analysis(
     model_name: str = "qwen3.8-flash-next-iq3_s"
 ) -> List[Dict[str, Any]]:
     """
-    Step 3: Strata VLM 배치 분석 (Zero-Drop Guarantee)
-    블록 삭제 없이 전체 블록을 크롭하여 단일/청크 배치로 일괄 질의
+    Step 3: Strata VLM 배치 분석
+    전체 블록을 질의하고, 명시적으로 비텍스트로 판정된 검출 오탐만 제외
     """
     logger.info(f"[Strata Pipeline] Step 3: Cropping {len(recalculated_blocks)} blocks & querying Strata VLM...")
     im_full = Image.open(image_path).convert("RGB")
@@ -216,8 +216,9 @@ def run_crop_and_strata_vlm_analysis(
             f"당신은 인포그래픽 텍스트 교정 및 타이포그래피 스타일링 전문가입니다.\n"
             f"아래 전달된 {len(chunk_blocks)}개의 잘려진(Cropped) 이미지 블록 각각에 대해 이미지 번호(image_idx: {chunk_start} ~ {chunk_start + len(chunk_blocks)-1})를 명시하여 정밀 분석하고 단일 JSON 배열로 회신하시오.\n\n"
             "도메인 지침 및 규칙:\n"
-            "1. 모든 블록은 인포그래픽의 핵심 텍스트 영역이므로 누락 없이 100% 텍스트를 복원해야 합니다.\n"
-            "2. 각 항목의 JSON 스키마:\n"
+            "1. 각 블록이 텍스트인지 먼저 판별하시오. 문자가 없는 아이콘·그림 등 검출 오탐은 text를 빈 문자열로 반환하고 텍스트를 추측하지 마시오.\n"
+            "2. 텍스트가 있는 블록은 누락 없이 원문을 복원하시오.\n"
+            "3. 각 항목의 JSON 스키마:\n"
             "   - image_idx: 해당 블록의 이미지 번호 (정수)\n"
             "   - text: 원본에 적힌 정확한 텍스트 (필요한 경우 줄바꿈 \\n 포함, 오탈자 정정)\n"
             "   - font_size: 추천 폰트 크기 (px 정수)\n"
@@ -286,10 +287,16 @@ def run_crop_and_strata_vlm_analysis(
             chunk_parsed = json.loads(content_str)
             if isinstance(chunk_parsed, dict) and "results" in chunk_parsed:
                 chunk_parsed = chunk_parsed["results"]
-            if isinstance(chunk_parsed, list):
-                all_parsed_items.extend(chunk_parsed)
-        except Exception as e:
-            logger.error(f"[Strata Pipeline] JSON parsing error in VLM response: {e}, raw text snippet: {content_str[:300]}")
+            if not isinstance(chunk_parsed, list):
+                raise ValueError("VLM response must be a JSON array.")
+            if len(chunk_parsed) != len(chunk_blocks):
+                raise ValueError(
+                    f"VLM returned {len(chunk_parsed)} items for {len(chunk_blocks)} image blocks."
+                )
+            all_parsed_items.extend(chunk_parsed)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.exception("[Strata Pipeline] Invalid JSON response from VLM.")
+            raise RuntimeError(f"Strata VLM 응답을 처리할 수 없습니다: {e}") from e
 
     results: List[Dict[str, Any]] = []
     for i, b_info in enumerate(recalculated_blocks):
@@ -298,15 +305,18 @@ def run_crop_and_strata_vlm_analysis(
             if p.get("image_idx") == i:
                 match_item = p
                 break
-        if not match_item and i < len(all_parsed_items):
-            match_item = all_parsed_items[i]
         if not match_item:
-            match_item = {
-                "text": f"텍스트 영역 {i + 1}",
-                "font_size": 18,
-                "font_weight": "Bold",
-                "text_color": "#1A1A1A"
-            }
+            raise RuntimeError(f"Strata VLM omitted result for image block {i}.")
+        text = match_item.get("text")
+        segments = match_item.get("segments")
+        if isinstance(text, str) and not text.strip() and not segments:
+            logger.info(
+                "[Strata Pipeline] Skipping non-text OCR detection for block %s.",
+                i,
+            )
+            continue
+        if not text and not segments:
+            raise RuntimeError(f"Strata VLM returned no text for image block {i}.")
 
         match_item["block_id"] = i
         match_item["bbox"] = b_info["bbox"]
@@ -332,7 +342,7 @@ def build_text_regions_from_strata_results(parsed_results: List[Dict[str, Any]])
         if not raw_text and item.get("segments"):
             raw_text = "\n".join([s.get("text", "") for s in item.get("segments", []) if s.get("text")])
         if not raw_text:
-            raw_text = f"인식 텍스트 {idx + 1}"
+            raise ValueError(f"Strata result {idx} contains no recognized text.")
 
         # 폰트 크기 추천 및 보정
         rec_font_size = item.get("font_size")
@@ -388,8 +398,7 @@ def run_strata_local_extraction(
     t0 = time.time()
     orig_boxes = extract_original_ocr_boxes(image_path)
     if not orig_boxes:
-        logger.warning(f"[Strata Pipeline] RapidOCR detected 0 boxes on {image_path.name}")
-        return [], {"error": "No text detected", "elapsed_sec": round(time.time() - t0, 2)}
+        raise RuntimeError(f"RapidOCR detected no text in {image_path.name}.")
 
     recalculated_blocks = perform_geometric_vertical_merging(image_path, orig_boxes)
     parsed_results = run_crop_and_strata_vlm_analysis(
@@ -406,6 +415,7 @@ def run_strata_local_extraction(
         "step1_raw_boxes_count": len(orig_boxes),
         "step2_merged_blocks_count": len(recalculated_blocks),
         "step3_vlm_parsed_count": len(parsed_results),
+        "step3_non_text_blocks_skipped_count": len(recalculated_blocks) - len(parsed_results),
         "regions_count": len(regions),
         "elapsed_sec": elapsed,
         "is_airgapped_secure": True

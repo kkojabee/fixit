@@ -14,7 +14,7 @@ DEFAULT_API_VERSION = "2024-05-01-preview"
 def fetch_recommended_azure_config(preferred_model: Optional[str] = None) -> Optional[dict]:
     """
     Dynamically fetch optimal Azure OpenAI URL & Key from msdn-cost recommendation API (ports 8100/8101).
-    Prefers gpt-6.1-sol with fallback to other models dynamically returned by recommendation service.
+    Requires the requested model from the recommendation service.
     """
     target = preferred_model or getattr(settings, "DOC_LLM_MODEL", "gpt-6.1-sol")
     
@@ -34,41 +34,33 @@ def fetch_recommended_azure_config(preferred_model: Optional[str] = None) -> Opt
                 if resp.status == 200:
                     data = json.loads(resp.read().decode())
                     if "url" in data and "key" in data:
-                        models_str = data.get("models", "")
-                        if "gpt-6.1-sol" in models_str:
-                            chosen_model = "gpt-6.1-sol"
-                        elif target in models_str:
-                            chosen_model = target
-                        elif "gpt-6-luna" in models_str:
-                            chosen_model = "gpt-6-luna"
-                        elif "gpt-5.6-luna" in models_str:
-                            chosen_model = "gpt-5.6-luna"
-                        else:
-                            chosen_model = target
+                        models = data.get("models", "")
+                        if target not in models:
+                            logger.error("[msdn-cost] Requested Azure model is unavailable.")
+                            continue
 
-                        logger.info(f"[msdn-cost] Connected Azure OpenAI via {url}: {data['url']} [Model: {chosen_model}]")
+                        logger.info(f"[msdn-cost] Connected Azure OpenAI via {url}: {data['url']} [Model: {target}]")
                         return {
                             "endpoint": data["url"],
                             "key": data["key"],
-                            "model": chosen_model,
+                            "model": target,
                             "api_version": DEFAULT_API_VERSION
                         }
         except Exception as e:
             logger.debug(f"[msdn-cost] Check failed for {url}: {e}")
             continue
 
-    logger.error("[msdn-cost] Recommendation API unreachable on all candidate endpoints. Azure OpenAI credentials unavailable.")
-    return None
+    raise RuntimeError(
+        f"Azure OpenAI configuration unavailable for requested model '{target}'."
+    )
 
 
 class FixitLLMClient:
-    """Manages Azure OpenAI client with Medium Thinking support for image recognition fallback."""
+    """Manages Azure OpenAI client calls for image recognition."""
 
     @classmethod
-    def get_azure_client(cls, model_name: Optional[str] = None) -> Optional[tuple[AzureOpenAI, str]]:
+    def get_azure_client(cls, model_name: Optional[str] = None) -> tuple[AzureOpenAI, str]:
         cfg = fetch_recommended_azure_config(preferred_model=model_name)
-        if not cfg:
-            return None
         try:
             client = AzureOpenAI(
                 azure_endpoint=cfg["endpoint"],
@@ -78,8 +70,7 @@ class FixitLLMClient:
             )
             return client, cfg["model"]
         except Exception as e:
-            logger.error(f"[AzureOpenAI] Client init failed: {e}")
-            return None
+            raise RuntimeError(f"Azure OpenAI client initialization failed: {e}") from e
 
     @classmethod
     def query_azure_vision(
@@ -87,14 +78,11 @@ class FixitLLMClient:
         image_b64: str,
         prompt: str,
         reasoning_effort: str = "low"
-    ) -> Optional[str]:
+    ) -> str:
         """
         Sends One-Pass Vision request to Azure gpt-6.1-sol with high context length
         """
         client_tuple = cls.get_azure_client(model_name="gpt-6.1-sol")
-        if not client_tuple:
-            return None
-        
         client, model = client_tuple
         messages = [
             {
@@ -127,7 +115,10 @@ class FixitLLMClient:
 
         try:
             resp = client.chat.completions.create(**kwargs)
-            return resp.choices[0].message.content
+            content = resp.choices[0].message.content
+            if not content or not content.strip():
+                raise RuntimeError("Azure OpenAI returned an empty response.")
+            return content
         except Exception as e:
             err_msg = str(e).lower()
             logger.warning(f"[AzureOpenAI] Vision request failed with params: {e}. Retrying without reasoning_effort...")
@@ -137,7 +128,12 @@ class FixitLLMClient:
                     kwargs["max_tokens"] = kwargs.pop("max_completion_tokens", 8000)
                 try:
                     resp = client.chat.completions.create(**kwargs)
-                    return resp.choices[0].message.content
+                    content = resp.choices[0].message.content
+                    if not content or not content.strip():
+                        raise RuntimeError("Azure OpenAI returned an empty response.")
+                    return content
                 except Exception as retry_err:
-                    logger.error(f"[AzureOpenAI] Retry without reasoning_effort failed: {retry_err}")
-            return None
+                    raise RuntimeError(
+                        f"Azure OpenAI compatibility retry failed: {retry_err}"
+                    ) from retry_err
+            raise RuntimeError(f"Azure OpenAI vision request failed: {e}") from e

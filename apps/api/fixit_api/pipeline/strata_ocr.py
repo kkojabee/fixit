@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageFont
 
+from fixit_api.config import settings
 from .schema import TextRegion, LineStyle
 from fixit_api.services.llm_client import FixitLLMClient
 from fixit_api.services.vlm_lock_service import vlm_lock_manager
@@ -754,9 +755,9 @@ class StrataOCR:
             avail_w = max(10, rw - 4)
 
             # Resolve font for exact FreeType measurement (avoiding crude heuristic over-estimation)
-            font_path = Path(__file__).resolve().parents[4] / "fonts" / ("NanumSquareEB.ttf" if "extra" in weight.lower() else "NanumSquareB.ttf")
+            font_path = Path(settings.FONTS_DIR) / ("NanumSquareEB.ttf" if "extra" in weight.lower() else "NanumSquareB.ttf")
             if "noto" in font_family.lower():
-                font_path = Path(__file__).resolve().parents[4] / "fonts" / "NotoSansKR-Bold.ttf"
+                font_path = Path(settings.FONTS_DIR) / "NotoSansKR-Bold.ttf"
 
             font_obj = None
             if font_path.exists():
@@ -838,7 +839,6 @@ class StrataOCR:
     def extract_regions(
         self,
         image_path: Path,
-        use_calibrated_profile: bool = True,
         model_type: str = "strata_non_thinking"
     ) -> Tuple[List[TextRegion], Dict[str, Any]]:
         """
@@ -870,21 +870,18 @@ class StrataOCR:
                 img.save(buf, format="JPEG", quality=92)
                 b64_jpeg = base64.b64encode(buf.getvalue()).decode("utf-8")
                 res_azure = FixitLLMClient.query_azure_vision(b64_jpeg, prompt, reasoning_effort="low")
-                if res_azure:
-                    try:
-                        Path("storage/outputs").mkdir(parents=True, exist_ok=True)
-                        with open("storage/outputs/azure_one_pass_result_latest.json", "w", encoding="utf-8") as f:
-                            f.write(res_azure)
-                    except Exception:
-                        pass
-                    parsed_azure = self._try_parse_regions(res_azure, 0, 0, orig_w=W, orig_h=H)
-                    if parsed_azure and len(parsed_azure) >= 5:
-                        refined = self.refine_and_autostyle_regions(parsed_azure, orig_bgr)
-                        meta["elapsed_sec"] = round(time.time() - t0, 2)
-                        meta["regions_count"] = len(refined)
-                        return refined, meta
+                parsed_azure = self._try_parse_regions(res_azure, 0, 0, orig_w=W, orig_h=H)
+                if not parsed_azure:
+                    raise RuntimeError("Azure GPT returned no valid text regions.")
+                refined = self.refine_and_autostyle_regions(parsed_azure, orig_bgr)
+                if not refined:
+                    raise RuntimeError("Azure GPT text-region refinement returned no regions.")
+                meta["elapsed_sec"] = round(time.time() - t0, 2)
+                meta["regions_count"] = len(refined)
+                return refined, meta
             except Exception as e:
-                logger.warning(f"[Dual OCR] Azure GPT-6.1-sol error: {e}. Falling back to Strata VLM.")
+                logger.exception("[Dual OCR] Azure GPT-6.1-sol processing failed.")
+                raise RuntimeError(f"Azure GPT 분석에 실패했습니다: {e}") from e
 
         # Mode B: Local Strata vLLM Pipeline (RapidOCR Step 1 + Geometric Merging Step 2 + Strata Batch VLM Step 3)
         if model_type.startswith("strata") or model_type == "local_vllm":
@@ -899,41 +896,19 @@ class StrataOCR:
                 if local_regions and len(local_regions) > 0:
                     # GPT와 100% 동일한 후처리(광학 글리프 분석, 외곽 테두리 픽셀 기준 정확한 배경색 샘플링, 폰트/스타일 보정, clean_bbox bleed 적용)
                     refined = self.refine_and_autostyle_regions(local_regions, orig_bgr)
+                    if not refined:
+                        raise RuntimeError("Strata text-region refinement returned no regions.")
                     meta.update(local_meta)
                     meta["actual_engine"] = "strata_local_vllm_pipeline"
                     meta["elapsed_sec"] = round(time.time() - t0, 2)
                     meta["regions_count"] = len(refined)
                     return refined, meta
+                raise RuntimeError("Strata Local Pipeline returned no text regions.")
             except Exception as e:
-                logger.error(f"[Dual OCR] Strata Local Pipeline execution error: {e}", exc_info=True)
+                logger.exception("[Dual OCR] Strata Local Pipeline processing failed.")
+                raise RuntimeError(f"Strata 분석에 실패했습니다: {e}") from e
 
-        # Mode C: Fallback to direct VLM or Calibrated targets
-        enable_thinking = (model_type == "strata_thinking")
-        mode_label = "Deep Thinking (CoT)" if enable_thinking else "Non-Thinking (Fast)"
-        logger.info(f"[Dual OCR] Mode Selected: Direct Strata VLM [{mode_label}] at {self.api_url}...")
-        
-        server_ok = self.check_server()
-        if server_ok:
-            try:
-                with vlm_lock_manager.acquire(task_name=f"ocr_{image_path.stem}", model_type=model_type):
-                    raw_text = self.query_vlm(img, prompt, enable_thinking=enable_thinking)
-                    if raw_text:
-                        parsed_strata = self._try_parse_regions(raw_text, 0, 0, orig_w=W, orig_h=H)
-                        if parsed_strata and len(parsed_strata) >= 3:
-                            refined = self.refine_and_autostyle_regions(parsed_strata, orig_bgr)
-                            meta["actual_engine"] = model_type
-                            meta["elapsed_sec"] = round(time.time() - t0, 2)
-                            meta["regions_count"] = len(refined)
-                            return refined, meta
-            except Exception as e:
-                logger.warning(f"[Dual OCR] Strata VLM [{mode_label}] inference error: {e}.")
-
-        # Final safety net: Calibrated targets
-        logger.info(f"[Dual OCR] Using calibrated ground truth engine ({len(self.CALIBRATED_TARGETS)} regions).")
-        meta["actual_engine"] = "calibrated_profile"
-        meta["elapsed_sec"] = round(time.time() - t0, 2)
-        meta["regions_count"] = len(self.CALIBRATED_TARGETS)
-        return list(self.CALIBRATED_TARGETS), meta
+        raise ValueError(f"Unsupported OCR model type: {model_type}")
 
 
     def extract_regions_sweeping(self, img: Image.Image, target_w: int = 1500, target_h: int = 900) -> List[TextRegion]:
@@ -1152,4 +1127,3 @@ class StrataOCR:
                         current.observed = other.observed
             sorted_regions = remaining
         return keep
-

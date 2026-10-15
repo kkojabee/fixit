@@ -61,10 +61,8 @@ class TextRenderer:
             return str(p)
         if Path(self.fallback_font_path).exists():
             return self.fallback_font_path
-        # Root fallback
-        root_cand = Path(__file__).resolve().parents[4] / "fonts" / "NanumSquareB.ttf"
-        if root_cand.exists():
-            return str(root_cand)
+        if Path(self.font_b_path).exists():
+            return self.font_b_path
         return str(p)
 
     @staticmethod
@@ -85,13 +83,9 @@ class TextRenderer:
             f_fb = self._cached_truetype(self.fallback_font_path, size)
             if f_fb is not None:
                 return f_fb
-        try:
-            cand = str(Path(__file__).resolve().parents[4] / "fonts" / "NanumSquareB.ttf")
-            f_cand = self._cached_truetype(cand, size)
-            if f_cand is not None:
-                return f_cand
-        except Exception:
-            pass
+        f_bold = self._cached_truetype(self.font_b_path, size)
+        if f_bold is not None:
+            return f_bold
         return ImageFont.load_default()
 
     def render_line_exact(

@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 from PIL import Image
@@ -16,7 +16,7 @@ try:
     IOPAINT_AVAILABLE = True
 except ImportError:
     IOPAINT_AVAILABLE = False
-    logger.info("[LaMa] iopaint package not found. OpenCV inpaint fallback will be used for textures.")
+    logger.info("[LaMa] iopaint package not found.")
 
 class LamaInpainter:
     """True Hybrid Cleaner: Precision Solid Color Fill for uniform cards, LaMa on CPU for complex textures."""
@@ -25,6 +25,7 @@ class LamaInpainter:
         self.device_str = device
         self.model = None
         self.request_config = None
+        self.initialization_error: Optional[str] = None
 
         if IOPAINT_AVAILABLE:
             try:
@@ -36,8 +37,11 @@ class LamaInpainter:
                 self.request_config.hd_strategy = HDStrategy.ORIGINAL
                 print("[LaMa] Model ready with HDStrategy.ORIGINAL.")
             except Exception as e:
-                logger.warning(f"[LaMa] Failed to initialize neural LaMa: {e}. Falling back to OpenCV.")
+                logger.exception("[LaMa] Failed to initialize neural model.")
+                self.initialization_error = str(e)
                 self.model = None
+        else:
+            self.initialization_error = "The iopaint package is unavailable."
 
     def inpaint(self, image: Image.Image, regions: List[TextRegion]) -> Image.Image:
         """Erase text regions with zero artifact:
@@ -120,42 +124,33 @@ class LamaInpainter:
 
         # For remaining textured regions:
         if complex_regions:
-            if self.model is not None and self.request_config is not None:
-                print(f"[Smart Inpaint] Running LaMa CPU on {len(complex_regions)} textured regions...")
-                for reg in complex_regions:
-                    rx, ry, rw, rh = reg.clean_bbox if getattr(reg, "clean_bbox", None) else reg.bbox
-                    margin = 60
-                    x1_ctx, y1_ctx = max(0, rx - margin), max(0, ry - margin)
-                    x2_ctx, y2_ctx = min(w, rx + rw + margin), min(h, ry + rh + margin)
+            if self.model is None or self.request_config is None:
+                reason = self.initialization_error or "LaMa model is unavailable."
+                raise RuntimeError(f"Textured-region inpainting failed: {reason}")
 
-                    patch_rgb = cleaned_rgb[y1_ctx:y2_ctx, x1_ctx:x2_ctx].copy()
-                    patch_mask = np.zeros(patch_rgb.shape[:2], dtype=np.uint8)
+            print(f"[Smart Inpaint] Running LaMa CPU on {len(complex_regions)} textured regions...")
+            for reg in complex_regions:
+                rx, ry, rw, rh = reg.clean_bbox if getattr(reg, "clean_bbox", None) else reg.bbox
+                margin = 60
+                x1_ctx, y1_ctx = max(0, rx - margin), max(0, ry - margin)
+                x2_ctx, y2_ctx = min(w, rx + rw + margin), min(h, ry + rh + margin)
 
-                    lx1 = max(0, (rx - x1_ctx) - 4)
-                    ly1 = max(0, (ry - y1_ctx) - 3)
-                    lx2 = min(patch_rgb.shape[1], (rx + rw - x1_ctx) + 4)
-                    ly2 = min(patch_rgb.shape[0], (ry + rh - y1_ctx) + 3)
-                    cv2.rectangle(patch_mask, (lx1, ly1), (lx2, ly2), 255, -1)
+                patch_rgb = cleaned_rgb[y1_ctx:y2_ctx, x1_ctx:x2_ctx].copy()
+                patch_mask = np.zeros(patch_rgb.shape[:2], dtype=np.uint8)
 
-                    inpainted_bgr = self.model(patch_rgb, patch_mask, self.request_config)
-                    if inpainted_bgr.dtype != np.uint8:
-                        inpainted_bgr = np.clip(inpainted_bgr, 0, 255).astype(np.uint8)
-                    inpainted_patch_rgb = cv2.cvtColor(inpainted_bgr, cv2.COLOR_BGR2RGB)
+                lx1 = max(0, (rx - x1_ctx) - 4)
+                ly1 = max(0, (ry - y1_ctx) - 3)
+                lx2 = min(patch_rgb.shape[1], (rx + rw - x1_ctx) + 4)
+                ly2 = min(patch_rgb.shape[0], (ry + rh - y1_ctx) + 3)
+                cv2.rectangle(patch_mask, (lx1, ly1), (lx2, ly2), 255, -1)
 
-                    mask_bool = patch_mask > 0
-                    cleaned_rgb[y1_ctx:y2_ctx, x1_ctx:x2_ctx][mask_bool] = inpainted_patch_rgb[mask_bool]
-            else:
-                # OpenCV Fast Inpaint fallback
-                print(f"[Smart Inpaint] Running OpenCV inpaint on {len(complex_regions)} textured regions...")
-                full_mask = np.zeros((h, w), dtype=np.uint8)
-                for reg in complex_regions:
-                    rx, ry, rw, rh = reg.clean_bbox or reg.bbox
-                    cv2.rectangle(full_mask, (max(0, rx-5), max(0, ry-5)), (min(w, rx+rw+5), min(h, ry+rh+5)), 255, -1)
-                kernel = np.ones((5, 5), np.uint8)
-                full_mask = cv2.dilate(full_mask, kernel, iterations=1)
-                cleaned_bgr = cv2.cvtColor(cleaned_rgb, cv2.COLOR_RGB2BGR)
-                inpainted_bgr = cv2.inpaint(cleaned_bgr, full_mask, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
-                cleaned_rgb = cv2.cvtColor(inpainted_bgr, cv2.COLOR_BGR2RGB)
+                inpainted_bgr = self.model(patch_rgb, patch_mask, self.request_config)
+                if inpainted_bgr.dtype != np.uint8:
+                    inpainted_bgr = np.clip(inpainted_bgr, 0, 255).astype(np.uint8)
+                inpainted_patch_rgb = cv2.cvtColor(inpainted_bgr, cv2.COLOR_BGR2RGB)
+
+                mask_bool = patch_mask > 0
+                cleaned_rgb[y1_ctx:y2_ctx, x1_ctx:x2_ctx][mask_bool] = inpainted_patch_rgb[mask_bool]
 
         print("[Smart Inpaint] Complete: 100% clean background with zero glyph residue.")
         

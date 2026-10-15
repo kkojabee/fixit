@@ -932,7 +932,14 @@ export default function App() {
         method: 'POST',
         body: restoreForm
       })
-      if (!resRestore.ok) throw new Error('AI 분석 및 복원에 실패했습니다.')
+      if (!resRestore.ok) {
+        const errorData = await resRestore.json().catch(() => null)
+        throw new Error(
+          typeof errorData?.detail === 'string'
+            ? errorData.detail
+            : 'AI 분석 및 복원에 실패했습니다.'
+        )
+      }
       const data: AutoRestoreResult = await resRestore.json()
 
       setBgImageUrl(data.background_image_url)
@@ -983,7 +990,7 @@ export default function App() {
             : 'Azure GPT-6.1-sol'
       showToast(`${engineLabel} 분석 완료! (${data.regions.length}개 블록 인식, ${data.metadata?.elapsed_sec || ''}초)`)
     } catch (err: any) {
-      alert(err.message)
+      showToast(err.message || 'AI 분석 및 복원 중 오류가 발생했습니다.')
     } finally {
       setIsProcessing(false)
       setProcessingStatus('')

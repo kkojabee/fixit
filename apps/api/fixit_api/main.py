@@ -535,12 +535,20 @@ async def restore_auto(
         shutil.copyfileobj(file.file, f)
 
     # Execute complete pipeline with chosen model_type
-    report = pipeline_engine.run(
-        str(in_file),
-        output_dir=str(task_dir),
-        generate_comparisons=True,
-        model_type=model_type
-    )
+    try:
+        report = pipeline_engine.run(
+            str(in_file),
+            output_dir=str(task_dir),
+            generate_comparisons=True,
+            model_type=model_type
+        )
+    except Exception as e:
+        logger.exception("[Restore] AI processing failed for task %s.", task_id)
+        model_label = "Azure GPT" if model_type == "azure_gpt" else "Strata"
+        raise HTTPException(
+            status_code=502,
+            detail=f"{model_label} 분석 및 복원 중 오류가 발생했습니다. 작업 ID: {task_id}"
+        ) from e
 
     bg_url = f"/api/storage/outputs/{task_id}/background_inpainted.png"
     final_url = f"/api/storage/outputs/{task_id}/{in_file.stem}_restored.png"
